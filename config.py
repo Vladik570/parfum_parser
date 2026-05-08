@@ -19,9 +19,6 @@ START_URL = "https://parfumcity.com.ua/ua/catalog/frantsuzskie-duhi"
 
 HEADLESS = False
 
-BROWSER_ARGS = [
-    "--disable-blink-features=AutomationControlled",
-]
 
 PAGE_LOAD_TIMEOUT = 30000
 ELEMENT_WAIT_TIMEOUT = 15000

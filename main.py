@@ -5,7 +5,6 @@ from playwright.async_api import async_playwright
 from config import (
     START_URL,
     HEADLESS,
-    BROWSER_ARGS,
     create_dirs,
 )
 
@@ -27,7 +26,7 @@ async def main() -> None:
         browser = await p.chromium.launch(
             headless=HEADLESS,
             channel="chrome",
-            args=BROWSER_ARGS,
+            args=["--disable-blink-features=AutomationControlled"],
         )
 
         context = await browser.new_context(
