@@ -1,9 +1,9 @@
-from playwright.async_api import Page
+from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 from config import (
     MAX_PAGES,
-    ELEMENT_WAIT_TIMEOUT,
     PAGE_LOAD_TIMEOUT,
+    ELEMENT_WAIT_TIMEOUT,
 )
 
 
@@ -13,62 +13,69 @@ async def collect_product_links(page: Page, start_url: str) -> list[str]:
 
     while True:
         if MAX_PAGES is not None and current_page > MAX_PAGES:
-            print("Достигнут лимит страниц из config.py")
+            print("Page limit reached from config.py")
             break
 
-        url = build_page_url(start_url, current_page)
+        catalog_url = build_catalog_page_url(start_url, current_page)
 
-        print(f"\nОткрываю страницу каталога: {url}")
+        print(f"\nOpening catalog page: {catalog_url}")
 
-        await page.goto(
-            url,
-            wait_until="domcontentloaded",
-            timeout=PAGE_LOAD_TIMEOUT,
-        )
+        try:
+            await page.goto(
+                catalog_url,
+                wait_until="domcontentloaded",
+                timeout=PAGE_LOAD_TIMEOUT,
+            )
+        except PlaywrightTimeoutError:
+            print(f"Page {current_page} is taking too long to load. Stopping.")
+            break
 
         await close_cookie_banner(page)
 
-        await page.wait_for_selector(
-            "#products_content",
-            timeout=ELEMENT_WAIT_TIMEOUT,
-        )
+        try:
+            await page.wait_for_selector(
+                "#products_content",
+                timeout=ELEMENT_WAIT_TIMEOUT,
+            )
+        except PlaywrightTimeoutError:
+            print(f"Page {current_page} has no product block. Stopping.")
+            break
 
-        await page.mouse.wheel(0, 3000)
         await page.wait_for_timeout(1000)
 
-        links = await extract_product_links(page, start_url)
+        product_links = await get_product_links_from_current_page(page)
 
-        if not links:
-            print("Товары на странице не найдены. Останавливаемся.")
+        if not product_links:
+            print(f"Page {current_page} no products found. End.")
             break
 
         new_links = []
 
-        for link in links:
+        for link in product_links:
             if link not in all_links:
                 new_links.append(link)
 
         if not new_links:
-            print("Новых товаров нет. Останавливаемся.")
+            print(f"Page {current_page} no new products found. End.")
             break
 
         all_links.extend(new_links)
 
-        print(f"На странице {current_page} найдено новых товаров: {len(new_links)}")
+        print(f"Page {current_page}: new products {len(new_links)}")
 
         current_page += 1
 
     return all_links
 
 
-def build_page_url(start_url: str, page_number: int) -> str:
+def build_catalog_page_url(start_url: str, page_number: int) -> str:
     if page_number == 1:
         return start_url
 
     return f"{start_url}?page={page_number}"
 
 
-async def extract_product_links(page: Page, start_url: str) -> list[str]:
+async def get_product_links_from_current_page(page: Page) -> list[str]:
     links = await page.locator("#products_content a[href]").evaluate_all(
         """
         elements => elements
@@ -79,18 +86,18 @@ async def extract_product_links(page: Page, start_url: str) -> list[str]:
             .filter(href => !href.includes('page='))
             .filter(href => !href.includes('#'))
             .filter(href => !href.includes('javascript'))
-            .filter(href => !href.includes('checkout'))
             .filter(href => !href.includes('cart'))
+            .filter(href => !href.includes('checkout'))
         """
     )
 
-    clean_links: list[str] = []
+    unique_links = []
 
     for link in links:
-        if link not in clean_links:
-            clean_links.append(link)
+        if link not in unique_links:
+            unique_links.append(link)
 
-    return clean_links
+    return unique_links
 
 
 async def close_cookie_banner(page: Page) -> None:

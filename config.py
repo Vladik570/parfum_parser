@@ -1,34 +1,43 @@
 from pathlib import Path
 
-# base path
+
 BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_DIR = BASE_DIR / 'output'
-HTML_DIR = OUTPUT_DIR / 'html'
-IMAGES_DIR = OUTPUT_DIR / 'images'
 
-PDF_OUTPUT_PATH = OUTPUT_DIR / 'catalog.pdf'
+OUTPUT_DIR = BASE_DIR / "output"
+HTML_DIR = OUTPUT_DIR / "html"
+IMAGES_DIR = OUTPUT_DIR / "images"
+DATA_DIR = OUTPUT_DIR / "data"
 
-# start url
-START_URL =  "https://parfumcity.com.ua/ua/catalog/frantsuzskie-duhi"
+PRODUCT_LINKS_PATH = DATA_DIR / "product_links.txt"
+PRODUCTS_JSON_PATH = DATA_DIR / "products.json"
+GROUPED_PRODUCTS_JSON_PATH = DATA_DIR / "grouped_products.json"
 
-# browser settings
+PDF_OUTPUT_PATH = OUTPUT_DIR / "catalog.pdf"
+
+
+START_URL = "https://parfumcity.com.ua/ua/catalog/frantsuzskie-duhi"
+
 HEADLESS = False
 
-#parse settings
+BROWSER_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+]
+
 PAGE_LOAD_TIMEOUT = 30000
-ELEMENT_WAIT_TIMEOUT = 10000
+ELEMENT_WAIT_TIMEOUT = 15000
 
 SAVE_HTML = True
 SAVE_IMAGES = True
 
-# None - all pages; 1-16 quality pages
-MAX_PAGES = None
-
-# pause between requests
 DELAY_BETWEEN_PRODUCTS = 1
+
+MAX_PAGES = 1
+# For test: 1 or 2
+# For full parsing: None
+
 
 def create_dirs() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
     HTML_DIR.mkdir(parents=True, exist_ok=True)
     IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
