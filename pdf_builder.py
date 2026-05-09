@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -46,13 +47,9 @@ def build_pdf_catalog(grouped_products: dict) -> None:
     draw_catalog_title(pdf, page_number)
     current_y -= 18 * mm
 
-    for classification, products in grouped_products.items():
-        current_y = ensure_space_for_header(pdf, current_y, page_number)
-        draw_classification_header(pdf, classification, current_y)
-        current_y -= 10 * mm
+    products_on_current_page = 0
 
-        products_on_current_page = 0
-
+    for products in grouped_products.values():
         for product in products:
             if products_on_current_page >= PRODUCTS_PER_PAGE:
                 draw_footer(pdf, page_number)
@@ -61,9 +58,6 @@ def build_pdf_catalog(grouped_products: dict) -> None:
 
                 draw_catalog_title(pdf, page_number)
                 current_y = PAGE_HEIGHT - MARGIN_TOP - 18 * mm
-
-                draw_classification_header(pdf, classification, current_y)
-                current_y -= 10 * mm
 
                 products_on_current_page = 0
 
@@ -74,9 +68,6 @@ def build_pdf_catalog(grouped_products: dict) -> None:
 
                 draw_catalog_title(pdf, page_number)
                 current_y = PAGE_HEIGHT - MARGIN_TOP - 18 * mm
-
-                draw_classification_header(pdf, classification, current_y)
-                current_y -= 10 * mm
 
                 products_on_current_page = 0
 
@@ -93,13 +84,6 @@ def build_pdf_catalog(grouped_products: dict) -> None:
             current_y -= CARD_HEIGHT + CARD_GAP
             product_index += 1
             products_on_current_page += 1
-
-        if current_y - CARD_HEIGHT < MARGIN_BOTTOM:
-            draw_footer(pdf, page_number)
-            pdf.showPage()
-            page_number += 1
-            draw_catalog_title(pdf, page_number)
-            current_y = PAGE_HEIGHT - MARGIN_TOP - 18 * mm
 
     draw_footer(pdf, page_number)
     pdf.save()
@@ -188,7 +172,7 @@ def draw_product_card(
     text_width = x + width - text_x - 6 * mm
 
     name = clean_text(product.get("name", ""), 150)
-    price = clean_text(product.get("price", ""), 40)
+    article = extract_article_from_name(name)
     classifications = clean_text(", ".join(product.get("classifications", [])), 100)
     url = product.get("url", "")
 
@@ -208,8 +192,8 @@ def draw_product_card(
 
     text_y = draw_wrapped_text(
         pdf=pdf,
-        label="Ціна:",
-        value=price,
+        label="Артикул:",
+        value=article,
         x=text_x,
         y=text_y,
         max_width=text_width,
@@ -422,6 +406,28 @@ def draw_footer(pdf: canvas.Canvas, page_number: int) -> None:
         MARGIN_BOTTOM / 2,
         footer_text,
     )
+
+
+def extract_article_from_name(name: str) -> str:
+    if not name:
+        return ""
+
+    excluded_numbers = {"110", "28"}
+
+    numbers = re.findall(r"\d+", name)
+
+    for number in numbers:
+        if number in excluded_numbers:
+            continue
+
+        if len(number) >= 3:
+            return number
+
+    for number in numbers:
+        if number not in excluded_numbers:
+            return number
+
+    return ""
 
 
 def clean_text(value: str, max_length: int) -> str:
