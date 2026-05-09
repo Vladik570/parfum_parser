@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -11,9 +12,6 @@ from reportlab.pdfgen import canvas
 
 from config import PDF_OUTPUT_PATH, PRODUCTS_PER_PAGE
 
-
-FONT_REGULAR_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-FONT_BOLD_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 FONT_REGULAR_NAME = "DejaVuSans"
 FONT_BOLD_NAME = "DejaVuSans-Bold"
@@ -83,6 +81,7 @@ def build_pdf_catalog(grouped_products: dict) -> None:
     pdf.save()
 
     print(f"PDF catalog saved: {PDF_OUTPUT_PATH}")
+
 
 def get_unique_sorted_products(grouped_products: dict) -> list[dict]:
     unique_products = {}
@@ -469,11 +468,81 @@ def clean_text(value: str, max_length: int) -> str:
 
 
 def register_fonts() -> None:
-    if not Path(FONT_REGULAR_PATH).exists():
-        raise FileNotFoundError(f"Font was not found: {FONT_REGULAR_PATH}")
+    regular_path, bold_path = resolve_font_paths()
 
-    if not Path(FONT_BOLD_PATH).exists():
-        raise FileNotFoundError(f"Font was not found: {FONT_BOLD_PATH}")
+    registered = set(pdfmetrics.getRegisteredFontNames())
 
-    pdfmetrics.registerFont(TTFont(FONT_REGULAR_NAME, FONT_REGULAR_PATH))
-    pdfmetrics.registerFont(TTFont(FONT_BOLD_NAME, FONT_BOLD_PATH))
+    if FONT_REGULAR_NAME not in registered:
+        pdfmetrics.registerFont(TTFont(FONT_REGULAR_NAME, str(regular_path)))
+
+    if FONT_BOLD_NAME not in registered:
+        pdfmetrics.registerFont(TTFont(FONT_BOLD_NAME, str(bold_path)))
+
+
+def resolve_font_paths() -> tuple[Path, Path]:
+    env_regular = os.environ.get("CATALOG_FONT_REGULAR")
+    env_bold = os.environ.get("CATALOG_FONT_BOLD")
+
+    regular_candidates: list[Path] = []
+    bold_candidates: list[Path] = []
+
+    if env_regular:
+        regular_candidates.append(Path(env_regular))
+    if env_bold:
+        bold_candidates.append(Path(env_bold))
+
+    if os.name == "nt":
+        windir = os.environ.get("WINDIR") or os.environ.get("SystemRoot") or r"C:\Windows"
+        fonts_dir = Path(windir) / "Fonts"
+
+        regular_candidates.extend(
+            [
+                fonts_dir / "DejaVuSans.ttf",
+                fonts_dir / "arial.ttf",
+                fonts_dir / "calibri.ttf",
+                fonts_dir / "segoeui.ttf",
+            ]
+        )
+        bold_candidates.extend(
+            [
+                fonts_dir / "DejaVuSans-Bold.ttf",
+                fonts_dir / "arialbd.ttf",
+                fonts_dir / "calibrib.ttf",
+                fonts_dir / "segoeuib.ttf",
+            ]
+        )
+    else:
+        regular_candidates.extend(
+            [
+                Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+                Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+                Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+                Path("/Library/Fonts/DejaVuSans.ttf"),
+                Path("/Library/Fonts/Arial.ttf"),
+            ]
+        )
+        bold_candidates.extend(
+            [
+                Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+                Path("/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
+                Path("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"),
+                Path("/Library/Fonts/DejaVuSans-Bold.ttf"),
+                Path("/Library/Fonts/Arial Bold.ttf"),
+            ]
+        )
+
+    regular_path = next((p for p in regular_candidates if p.exists()), None)
+    bold_path = next((p for p in bold_candidates if p.exists()), None)
+
+    if regular_path and bold_path:
+        return regular_path, bold_path
+
+    checked = []
+    checked.extend(str(p) for p in regular_candidates[:8])
+    checked.extend(str(p) for p in bold_candidates[:8])
+
+    raise FileNotFoundError(
+        "TTF fonts were not found for PDF generation. "
+        "Set env vars CATALOG_FONT_REGULAR and CATALOG_FONT_BOLD to valid .ttf paths. "
+        f"Checked examples: {', '.join(checked)}"
+    )
