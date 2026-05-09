@@ -44,51 +44,77 @@ def build_pdf_catalog(grouped_products: dict) -> None:
 
     current_y = PAGE_HEIGHT - MARGIN_TOP
 
-    draw_catalog_title(pdf, page_number)
-    current_y -= 18 * mm
+    products = get_unique_sorted_products(grouped_products)
 
     products_on_current_page = 0
 
-    for products in grouped_products.values():
-        for product in products:
-            if products_on_current_page >= PRODUCTS_PER_PAGE:
-                draw_footer(pdf, page_number)
-                pdf.showPage()
-                page_number += 1
+    for product in products:
+        if products_on_current_page >= PRODUCTS_PER_PAGE:
+            draw_footer(pdf, page_number)
+            pdf.showPage()
+            page_number += 1
 
-                draw_catalog_title(pdf, page_number)
-                current_y = PAGE_HEIGHT - MARGIN_TOP - 18 * mm
+            current_y = PAGE_HEIGHT - MARGIN_TOP
+            products_on_current_page = 0
 
-                products_on_current_page = 0
+        if current_y - CARD_HEIGHT < MARGIN_BOTTOM:
+            draw_footer(pdf, page_number)
+            pdf.showPage()
+            page_number += 1
 
-            if current_y - CARD_HEIGHT < MARGIN_BOTTOM:
-                draw_footer(pdf, page_number)
-                pdf.showPage()
-                page_number += 1
+            current_y = PAGE_HEIGHT - MARGIN_TOP
+            products_on_current_page = 0
 
-                draw_catalog_title(pdf, page_number)
-                current_y = PAGE_HEIGHT - MARGIN_TOP - 18 * mm
+        draw_product_card(
+            pdf=pdf,
+            product=product,
+            x=MARGIN_LEFT,
+            y_top=current_y,
+            width=PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT,
+            height=CARD_HEIGHT,
+            product_index=product_index,
+        )
 
-                products_on_current_page = 0
-
-            draw_product_card(
-                pdf=pdf,
-                product=product,
-                x=MARGIN_LEFT,
-                y_top=current_y,
-                width=PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT,
-                height=CARD_HEIGHT,
-                product_index=product_index,
-            )
-
-            current_y -= CARD_HEIGHT + CARD_GAP
-            product_index += 1
-            products_on_current_page += 1
+        current_y -= CARD_HEIGHT + CARD_GAP
+        product_index += 1
+        products_on_current_page += 1
 
     draw_footer(pdf, page_number)
     pdf.save()
 
     print(f"PDF catalog saved: {PDF_OUTPUT_PATH}")
+
+def get_unique_sorted_products(grouped_products: dict) -> list[dict]:
+    unique_products = {}
+
+    for products in grouped_products.values():
+        for product in products:
+            url = product.get("url", "")
+
+            if not url:
+                continue
+
+            if url not in unique_products:
+                unique_products[url] = product
+
+    products = list(unique_products.values())
+
+    products.sort(key=get_product_article_for_sort)
+
+    return products
+
+
+def get_product_article_for_sort(product: dict) -> int:
+    name = product.get("name", "")
+    article = extract_article_from_name(name)
+
+    if not article:
+        return 999999999
+
+    try:
+        return int(article)
+    except ValueError:
+        return 999999999
 
 
 def draw_catalog_title(pdf: canvas.Canvas, page_number: int) -> None:
@@ -412,19 +438,18 @@ def extract_article_from_name(name: str) -> str:
     if not name:
         return ""
 
-    excluded_numbers = {"110", "28"}
+    numbers = re.finditer(r"\d+", name)
 
-    numbers = re.findall(r"\d+", name)
+    for match in numbers:
+        number = match.group()
+        end_position = match.end()
 
-    for number in numbers:
-        if number in excluded_numbers:
+        text_after_number = name[end_position:end_position + 10].lower()
+
+        if re.match(r"\s*(ml|мл\.?|мл)", text_after_number):
             continue
 
         if len(number) >= 3:
-            return number
-
-    for number in numbers:
-        if number not in excluded_numbers:
             return number
 
     return ""
