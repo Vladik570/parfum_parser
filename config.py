@@ -28,9 +28,11 @@ SAVE_IMAGES = True
 
 DELAY_BETWEEN_PRODUCTS = 1
 
-MAX_PAGES = 1
+MAX_PAGES = None
 # For test: 1 or 2
 # For full parsing: None
+
+PRODUCTS_PER_PAGE = 6
 
 
 def create_dirs() -> None:

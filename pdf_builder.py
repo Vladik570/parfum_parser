@@ -1,22 +1,14 @@
 from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Table,
-    TableStyle,
-    Paragraph,
-    Spacer,
-    Image,
-    PageBreak,
-)
+from reportlab.pdfgen import canvas
 
-from config import PDF_OUTPUT_PATH
+from config import PDF_OUTPUT_PATH, PRODUCTS_PER_PAGE
 
 
 FONT_REGULAR_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -26,122 +18,423 @@ FONT_REGULAR_NAME = "DejaVuSans"
 FONT_BOLD_NAME = "DejaVuSans-Bold"
 
 
+PAGE_WIDTH, PAGE_HEIGHT = A4
+
+MARGIN_LEFT = 14 * mm
+MARGIN_RIGHT = 14 * mm
+MARGIN_TOP = 14 * mm
+MARGIN_BOTTOM = 14 * mm
+
+CARD_GAP = 4 * mm
+CARD_HEIGHT = 36 * mm
+
+IMAGE_SIZE = 28 * mm
+
+CHECKBOX_SIZE = 4.5 * mm
+
+
 def build_pdf_catalog(grouped_products: dict) -> None:
     register_fonts()
 
-    doc = SimpleDocTemplate(
-        str(PDF_OUTPUT_PATH),
-        pagesize=landscape(A4),
-        rightMargin=10 * mm,
-        leftMargin=10 * mm,
-        topMargin=10 * mm,
-        bottomMargin=10 * mm,
-    )
+    pdf = canvas.Canvas(str(PDF_OUTPUT_PATH), pagesize=A4)
 
-    styles = getSampleStyleSheet()
+    page_number = 1
+    product_index = 1
 
-    title_style = ParagraphStyle(
-        "CatalogTitle",
-        parent=styles["Title"],
-        fontName=FONT_BOLD_NAME,
-        fontSize=18,
-        leading=22,
-        spaceAfter=8,
-    )
+    current_y = PAGE_HEIGHT - MARGIN_TOP
 
-    group_style = ParagraphStyle(
-        "GroupTitle",
-        parent=styles["Heading2"],
-        fontName=FONT_BOLD_NAME,
-        fontSize=14,
-        leading=18,
-        spaceBefore=10,
-        spaceAfter=8,
-    )
-
-    header_style = ParagraphStyle(
-        "HeaderText",
-        parent=styles["Normal"],
-        fontName=FONT_BOLD_NAME,
-        fontSize=8,
-        leading=10,
-    )
-
-    cell_style = ParagraphStyle(
-        "CellText",
-        parent=styles["Normal"],
-        fontName=FONT_REGULAR_NAME,
-        fontSize=8,
-        leading=10,
-    )
-
-    story = []
-
-    story.append(Paragraph("Каталог парфумів", title_style))
-    story.append(Spacer(1, 6 * mm))
+    draw_catalog_title(pdf, page_number)
+    current_y -= 18 * mm
 
     for classification, products in grouped_products.items():
-        story.append(Paragraph(f"Класифікація: {classification}", group_style))
+        current_y = ensure_space_for_header(pdf, current_y, page_number)
+        draw_classification_header(pdf, classification, current_y)
+        current_y -= 10 * mm
 
-        table_data = [
-            [
-                Paragraph("Фото", header_style),
-                Paragraph("Назва", header_style),
-                Paragraph("Ціна", header_style),
-                Paragraph("Класифікація", header_style),
-                Paragraph("URL", header_style),
-            ]
-        ]
+        products_on_current_page = 0
 
         for product in products:
-            image_cell = build_image_cell(product.get("image", ""))
+            if products_on_current_page >= PRODUCTS_PER_PAGE:
+                draw_footer(pdf, page_number)
+                pdf.showPage()
+                page_number += 1
 
-            name = product.get("name", "")
-            price = product.get("price", "")
-            url = product.get("url", "")
-            classifications = ", ".join(product.get("classifications", []))
+                draw_catalog_title(pdf, page_number)
+                current_y = PAGE_HEIGHT - MARGIN_TOP - 18 * mm
 
-            table_data.append(
-                [
-                    image_cell,
-                    Paragraph(name, cell_style),
-                    Paragraph(price, cell_style),
-                    Paragraph(classifications, cell_style),
-                    Paragraph(url, cell_style),
-                ]
+                draw_classification_header(pdf, classification, current_y)
+                current_y -= 10 * mm
+
+                products_on_current_page = 0
+
+            if current_y - CARD_HEIGHT < MARGIN_BOTTOM:
+                draw_footer(pdf, page_number)
+                pdf.showPage()
+                page_number += 1
+
+                draw_catalog_title(pdf, page_number)
+                current_y = PAGE_HEIGHT - MARGIN_TOP - 18 * mm
+
+                draw_classification_header(pdf, classification, current_y)
+                current_y -= 10 * mm
+
+                products_on_current_page = 0
+
+            draw_product_card(
+                pdf=pdf,
+                product=product,
+                x=MARGIN_LEFT,
+                y_top=current_y,
+                width=PAGE_WIDTH - MARGIN_LEFT - MARGIN_RIGHT,
+                height=CARD_HEIGHT,
+                product_index=product_index,
             )
 
-        table = Table(
-            table_data,
-            colWidths=[30 * mm, 75 * mm, 25 * mm, 45 * mm, 100 * mm],
-            repeatRows=1,
-        )
+            current_y -= CARD_HEIGHT + CARD_GAP
+            product_index += 1
+            products_on_current_page += 1
 
-        table.setStyle(
-            TableStyle(
-                [
-                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("ALIGN", (0, 0), (0, -1), "CENTER"),
+        if current_y - CARD_HEIGHT < MARGIN_BOTTOM:
+            draw_footer(pdf, page_number)
+            pdf.showPage()
+            page_number += 1
+            draw_catalog_title(pdf, page_number)
+            current_y = PAGE_HEIGHT - MARGIN_TOP - 18 * mm
 
-                    ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD_NAME),
-                    ("FONTNAME", (0, 1), (-1, -1), FONT_REGULAR_NAME),
-
-                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                    ("TOPPADDING", (0, 0), (-1, -1), 4),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ]
-            )
-        )
-
-        story.append(table)
-        story.append(PageBreak())
-
-    doc.build(story)
+    draw_footer(pdf, page_number)
+    pdf.save()
 
     print(f"PDF catalog saved: {PDF_OUTPUT_PATH}")
+
+
+def draw_catalog_title(pdf: canvas.Canvas, page_number: int) -> None:
+    pdf.setFont(FONT_BOLD_NAME, 16)
+    pdf.setFillColor(colors.black)
+
+    title = "Каталог парфумів"
+    title_width = pdfmetrics.stringWidth(title, FONT_BOLD_NAME, 16)
+
+    pdf.drawString(
+        (PAGE_WIDTH - title_width) / 2,
+        PAGE_HEIGHT - MARGIN_TOP,
+        title,
+    )
+
+
+def draw_classification_header(
+    pdf: canvas.Canvas,
+    classification: str,
+    y: float,
+) -> None:
+    text = f"Класифікація: {clean_text(classification, 80)}"
+
+    pdf.setFont(FONT_BOLD_NAME, 11)
+    pdf.setFillColor(colors.black)
+    pdf.drawString(MARGIN_LEFT, y, text)
+
+
+def ensure_space_for_header(
+    pdf: canvas.Canvas,
+    current_y: float,
+    page_number: int,
+) -> float:
+    if current_y - 20 * mm < MARGIN_BOTTOM:
+        draw_footer(pdf, page_number)
+        pdf.showPage()
+        draw_catalog_title(pdf, page_number + 1)
+        return PAGE_HEIGHT - MARGIN_TOP - 18 * mm
+
+    return current_y
+
+
+def draw_product_card(
+    pdf: canvas.Canvas,
+    product: dict,
+    x: float,
+    y_top: float,
+    width: float,
+    height: float,
+    product_index: int,
+) -> None:
+    y_bottom = y_top - height
+
+    pdf.setStrokeColor(colors.grey)
+    pdf.setLineWidth(0.6)
+    pdf.rect(x, y_bottom, width, height)
+
+    checkbox_x = x + 4 * mm
+    checkbox_y_top = y_top - 8 * mm
+
+    draw_interactive_checkboxes(
+        pdf=pdf,
+        x=checkbox_x,
+        y=checkbox_y_top,
+        product_index=product_index,
+    )
+
+    image_x = x + 28 * mm
+    image_y = y_bottom + 4 * mm
+
+    draw_product_image(
+        pdf=pdf,
+        image_path=product.get("image", ""),
+        x=image_x,
+        y=image_y,
+    )
+
+    text_x = image_x + IMAGE_SIZE + 8 * mm
+    text_y = y_top - 8 * mm
+
+    text_width = x + width - text_x - 6 * mm
+
+    name = clean_text(product.get("name", ""), 150)
+    price = clean_text(product.get("price", ""), 40)
+    classifications = clean_text(", ".join(product.get("classifications", [])), 100)
+    url = product.get("url", "")
+
+    pdf.setFillColor(colors.black)
+
+    text_y = draw_wrapped_text(
+        pdf=pdf,
+        label="Назва:",
+        value=name,
+        x=text_x,
+        y=text_y,
+        max_width=text_width,
+        max_lines=2,
+    )
+
+    text_y -= 2 * mm
+
+    text_y = draw_wrapped_text(
+        pdf=pdf,
+        label="Ціна:",
+        value=price,
+        x=text_x,
+        y=text_y,
+        max_width=text_width,
+        max_lines=1,
+    )
+
+    text_y -= 2 * mm
+
+    text_y = draw_wrapped_text(
+        pdf=pdf,
+        label="Класифікація:",
+        value=classifications,
+        x=text_x,
+        y=text_y,
+        max_width=text_width,
+        max_lines=2,
+    )
+
+    text_y -= 2 * mm
+
+    draw_product_link(
+        pdf=pdf,
+        url=url,
+        x=text_x,
+        y=text_y,
+    )
+
+
+def draw_interactive_checkboxes(
+    pdf: canvas.Canvas,
+    x: float,
+    y: float,
+    product_index: int,
+) -> None:
+    pdf.setFont(FONT_BOLD_NAME, 8)
+    pdf.setFillColor(colors.black)
+
+    ok_name = f"ok_{product_index}"
+    reject_name = f"reject_{product_index}"
+
+    pdf.acroForm.checkbox(
+        name=ok_name,
+        tooltip="Approved",
+        x=x,
+        y=y,
+        size=CHECKBOX_SIZE,
+        buttonStyle="check",
+        borderStyle="solid",
+        borderWidth=1,
+        borderColor=colors.black,
+        fillColor=colors.white,
+        textColor=colors.green,
+        forceBorder=True,
+    )
+
+    pdf.drawString(x + CHECKBOX_SIZE + 2 * mm, y + 1 * mm, "✓")
+
+    second_y = y - 7 * mm
+
+    pdf.acroForm.checkbox(
+        name=reject_name,
+        tooltip="Rejected",
+        x=x,
+        y=second_y,
+        size=CHECKBOX_SIZE,
+        buttonStyle="cross",
+        borderStyle="solid",
+        borderWidth=1,
+        borderColor=colors.black,
+        fillColor=colors.white,
+        textColor=colors.red,
+        forceBorder=True,
+    )
+
+    pdf.drawString(x + CHECKBOX_SIZE + 2 * mm, second_y + 1 * mm, "✗")
+
+
+def draw_product_image(
+    pdf: canvas.Canvas,
+    image_path: str,
+    x: float,
+    y: float,
+) -> None:
+    if not image_path:
+        return
+
+    path = Path(image_path)
+
+    if not path.exists():
+        return
+
+    try:
+        image = ImageReader(str(path))
+
+        pdf.drawImage(
+            image,
+            x,
+            y,
+            width=IMAGE_SIZE,
+            height=IMAGE_SIZE,
+            preserveAspectRatio=True,
+            anchor="c",
+            mask="auto",
+        )
+
+    except Exception:
+        return
+
+
+def draw_product_link(
+    pdf: canvas.Canvas,
+    url: str,
+    x: float,
+    y: float,
+) -> None:
+    if not url:
+        return
+
+    link_text = "Відкрити товар"
+
+    pdf.setFont(FONT_REGULAR_NAME, 8)
+    pdf.setFillColor(colors.blue)
+    pdf.drawString(x, y, link_text)
+
+    link_width = pdfmetrics.stringWidth(link_text, FONT_REGULAR_NAME, 8)
+
+    pdf.linkURL(
+        url,
+        rect=(x, y - 1 * mm, x + link_width, y + 4 * mm),
+        relative=0,
+    )
+
+    pdf.setFillColor(colors.black)
+
+
+def draw_wrapped_text(
+    pdf: canvas.Canvas,
+    label: str,
+    value: str,
+    x: float,
+    y: float,
+    max_width: float,
+    max_lines: int,
+) -> float:
+    label_text = f"{label} "
+    full_text = f"{label_text}{value}"
+
+    lines = wrap_text(
+        text=full_text,
+        font_name=FONT_REGULAR_NAME,
+        font_size=8,
+        max_width=max_width,
+        max_lines=max_lines,
+    )
+
+    for line in lines:
+        pdf.setFont(FONT_REGULAR_NAME, 8)
+        pdf.setFillColor(colors.black)
+        pdf.drawString(x, y, line)
+        y -= 4 * mm
+
+    return y
+
+
+def wrap_text(
+    text: str,
+    font_name: str,
+    font_size: int,
+    max_width: float,
+    max_lines: int,
+) -> list[str]:
+    words = text.split()
+    lines = []
+    current_line = ""
+
+    for word in words:
+        test_line = word if not current_line else f"{current_line} {word}"
+        test_width = pdfmetrics.stringWidth(test_line, font_name, font_size)
+
+        if test_width <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+
+            current_line = word
+
+            if len(lines) >= max_lines:
+                break
+
+    if current_line and len(lines) < max_lines:
+        lines.append(current_line)
+
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+
+    if len(lines) == max_lines and len(" ".join(words)) > len(" ".join(lines)):
+        lines[-1] = lines[-1].rstrip(".") + "..."
+
+    return lines
+
+
+def draw_footer(pdf: canvas.Canvas, page_number: int) -> None:
+    pdf.setFont(FONT_REGULAR_NAME, 7)
+    pdf.setFillColor(colors.grey)
+
+    footer_text = f"Page {page_number}"
+    pdf.drawRightString(
+        PAGE_WIDTH - MARGIN_RIGHT,
+        MARGIN_BOTTOM / 2,
+        footer_text,
+    )
+
+
+def clean_text(value: str, max_length: int) -> str:
+    if value is None:
+        return ""
+
+    value = str(value)
+    value = " ".join(value.split())
+
+    if len(value) > max_length:
+        value = value[:max_length].rstrip() + "..."
+
+    return value
 
 
 def register_fonts() -> None:
@@ -153,18 +446,3 @@ def register_fonts() -> None:
 
     pdfmetrics.registerFont(TTFont(FONT_REGULAR_NAME, FONT_REGULAR_PATH))
     pdfmetrics.registerFont(TTFont(FONT_BOLD_NAME, FONT_BOLD_PATH))
-
-
-def build_image_cell(image_path: str):
-    if not image_path:
-        return ""
-
-    path = Path(image_path)
-
-    if not path.exists():
-        return ""
-
-    try:
-        return Image(str(path), width=25 * mm, height=25 * mm)
-    except Exception:
-        return ""
